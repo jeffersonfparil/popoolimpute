@@ -7,6 +7,7 @@
 use std::fs::File;
 use std::io::{Result, Lines, BufRead, BufReader};
 use std::path::Path;
+use ndarray::Array2;
 
 pub fn stream_file<P>(filename:P) -> Result<Lines<BufReader<File>>> where P:AsRef<Path> {
     let file = File::open(filename).expect("File not found!");
@@ -16,17 +17,17 @@ pub fn stream_file<P>(filename:P) -> Result<Lines<BufReader<File>>> where P:AsRe
 struct Locus {
     chromosome: String,
     position: u64,
-    reference_allele: char,
-    ATCGIDN_counts: Vec<u64>
+    referenceAllele: char,
+    atcgidnCounts: Vec<u64>
 }
 
 impl Locus {
 
-    fn parse_1_read_column(read: &str, reference_allele:char, quality:&str, minimum_quality:u8) -> (u64, u64, u64, u64, u64, u64, u64) {
+    fn parse_1_read_column(read: &str, referenceAllele:char, quality:&str, minimumQuality:u8) -> (u64, u64, u64, u64, u64, u64, u64) {
         // qualities
         let mut qual:Vec<u8> = vec![];
-        let vec_qual:Vec<char> = quality.chars().collect();
-        for q in vec_qual.iter() {
+        let vecQual:Vec<char> = quality.chars().collect();
+        for q in vecQual.iter() {
             qual.push(*q as u8 - 33);
         }
         // reads
@@ -63,9 +64,9 @@ impl Locus {
             } else if *x == '$' {
                 n_read_end = n_read_end + 1;
                 continue;
-            } else if q >= minimum_quality {
+            } else if q >= minimumQuality {
                 if (*x=='.') | (*x==',') {
-                    match reference_allele {
+                    match referenceAllele {
                         'A' => A = A + 1,
                         'T' => T = T + 1,
                         'C' => C = C + 1,
@@ -122,24 +123,29 @@ impl Locus {
         (A, T, C, G, I, D, N)
     }
 
-    fn new(vec: Vec<String>, min_base_quality: u8) -> Self {
+    fn new(vec: Vec<String>, minBaseQuality: u8) -> Self {
         let mut chromosome: String = vec[0].to_string();
         let mut position: u64 = vec[1].parse().unwrap();
-        let mut reference_allele: char = vec[2].chars().next().expect("We're expecting a single character as reference allele!");
+        let mut referenceAllele: char = vec[2].chars().next().expect("We're expecting a single character as reference allele!");
         let p: usize = vec.iter().count();
         let mut out: Vec<u64> = vec![];
         for i in (4..p).step_by(3) {
             // println!("{}", i);
-            let (A, T, C, G, I, D, N) = Locus::parse_1_read_column(&vec[i], reference_allele, &vec[i+1], min_base_quality);
+            let (A, T, C, G, I, D, N) = Locus::parse_1_read_column(&vec[i], referenceAllele, &vec[i+1], minBaseQuality);
             out.push(A); out.push(T); out.push(C); out.push(G); out.push(I); out.push(D); out.push(N);
         }
-        Self{chromosome: chromosome, position: position, reference_allele: reference_allele, ATCGIDN_counts: out}
+        Self{chromosome: chromosome, position: position, referenceAllele: referenceAllele, atcgidnCounts: out}
+    }
+
+    fn to_matrix() -> Array2<f64> {
+        let x = ndarray::arr2(&[[1.0, 2.0],[3.1, 4.5]]);
+        x
     }
 }
 
 pub fn iterate_across_lines(stream:Result<Lines<BufReader<File>>>){
-    let min_base_quality: u8 = 20;
-    let window_size: u64 = 1;
+    let minBaseQuality: u8 = 20;
+    let windowSize: u64 = 2;
     let mut vec: Vec<String>;
     let mut window: Vec<Locus> = vec![];
     let mut i: u64 = 0;
@@ -149,20 +155,24 @@ pub fn iterate_across_lines(stream:Result<Lines<BufReader<File>>>){
                 .split_whitespace()
                 .map(str::to_string)
                 .collect();
-        let locus: Locus = Locus::new(vec, min_base_quality);
-        // debug
-        println!("{}", window[0].chromosome);
-        println!("{}", window[0].position);
-        println!("{}-{}-{}-{}-{}-{}-{}<--->{}-{}-{}-{}-{}-{}-{}",
-                 window[0].ATCGIDN_counts[0], window[0].ATCGIDN_counts[1], window[0].ATCGIDN_counts[2], window[0].ATCGIDN_counts[3], window[0].ATCGIDN_counts[4], window[0].ATCGIDN_counts[5], window[0].ATCGIDN_counts[6],
-                 window[0].ATCGIDN_counts[7], window[0].ATCGIDN_counts[8], window[0].ATCGIDN_counts[9], window[0].ATCGIDN_counts[10], window[0].ATCGIDN_counts[11], window[0].ATCGIDN_counts[12], window[0].ATCGIDN_counts[13]
-                );
+        let locus: Locus = Locus::new(vec, minBaseQuality);
         // fill-up window
-        if window.len() < window_size as usize {
+        if window.len() < windowSize as usize {
             window.push(locus);
         } else {
             i = i + 1;
+            // window as input to a function;
 
         }
+    }
+    // debug
+    for j in 0..windowSize {
+        let w = &window[j as usize];
+        println!("{}", w.chromosome);
+        println!("{}", w.position);
+        println!("{}-{}-{}-{}-{}-{}-{}<--->{}-{}-{}-{}-{}-{}-{}",
+                    w.atcgidnCounts[0], w.atcgidnCounts[1], w.atcgidnCounts[2], w.atcgidnCounts[3], w.atcgidnCounts[4], w.atcgidnCounts[5], w.atcgidnCounts[6],
+                    w.atcgidnCounts[7], w.atcgidnCounts[8], w.atcgidnCounts[9], w.atcgidnCounts[10], w.atcgidnCounts[11], w.atcgidnCounts[12], w.atcgidnCounts[13]
+                );
     }
 }
