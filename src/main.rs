@@ -1,3 +1,6 @@
+#[macro_use(s)]
+extern crate ndarray;
+
 mod functions;
 
 // fn main() {
@@ -7,8 +10,9 @@ mod functions;
 
 fn main() {
     let stream = functions::stream_file("res/test.pileup");
-    // functions::print_line_by_line(stream);
-    // functions::print_column_by_column_per_line(stream);
-    functions::iterate_across_lines(stream);
+    let n: usize = functions::count_columns(stream.unwrap());
+
+    let stream = functions::stream_file("res/test.pileup");
+    functions::iterate_across_lines(stream, n);
 
 }

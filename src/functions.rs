@@ -4,14 +4,23 @@
 //     f("sequencing allele frequency information.");
 // }
 
+
 use std::fs::File;
 use std::io::{Result, Lines, BufRead, BufReader};
 use std::path::Path;
-use ndarray::{Array1, Array2, Axis};
+use ndarray::{Array1, Array2, Axis, arr1, arr2};
 
 pub fn stream_file<P>(filename:P) -> Result<Lines<BufReader<File>>> where P:AsRef<Path> {
     let file = File::open(filename).expect("File not found!");
     Ok(BufReader::new(file).lines())
+}
+
+pub fn count_columns(mut lines: Lines<BufReader<File>>) -> usize {
+    let line: String = lines.next().unwrap().unwrap();
+    let vec_string: Vec<String> = line.split_whitespace()
+                    .map(str::to_string).collect();
+    let n: usize = vec_string.len() as usize;
+    n
 }
 
 trait PileupLocus {
@@ -148,7 +157,7 @@ impl Window {
         self.count_matrix.dim()
     }
 
-    // fn slide(self, chromosome: String, position: u64, reference_allele: char, counts: Vec<u64>) -> i64 {
+    // fn slide(&mut self, chromosome: String, position: u64, reference_allele: char, counts: Vec<u64>) -> i64 {
     //     let (p, n) = self.dim();
     //     let mut chromosomes: Vec<String> = vec![chromosome]; chromosomes.extend(self.chromosomes[1..p-1].to_vec());
     //     let mut positions: Vec<u64> = vec![position]; positions.extend(self.positions[1..p-1].to_vec());
@@ -163,33 +172,67 @@ impl Window {
     // }
 }
 
-pub fn iterate_across_lines(stream:Result<Lines<BufReader<File>>>){
+pub fn iterate_across_lines(stream:Result<Lines<BufReader<File>>>, n: usize){
     const NUMBER_OF_ALLELES: usize = 7;
     let min_base_quality: u8 = 20;
-    let window_size: usize = 2;
+    let window_size: usize = 3;
     let mut locus_counter: u64 = 0;
     let mut vec: Vec<String>;
-    let mut data = Vec::new();
+    let mut chromosomes: Vec<String> = Vec::new(); let chromosomes_ref = &mut chromosomes;
+    let mut positions: Vec<u64> = Vec::new(); let positions_ref = &mut positions;
+    let mut reference_alleles: Vec<char> = Vec::new(); let reference_alleles_ref = &mut reference_alleles;
+    let mut data: Vec<u64> = Vec::new(); let data_ref = &mut data; // create a reference to the vector so we can mutate it within our for-loop
+    let mut count_matrix = Array2::<f64>::zeros((window_size, n)); let count_matrix_ref = &mut count_matrix;
     for line in stream.unwrap() {
+        locus_counter += 1;
+        println!("{}: {} > {}", n, locus_counter, window_size);
         vec = line
                 .unwrap()
                 .split_whitespace()
                 .map(str::to_string)
                 .collect();
         let (chromosome, position, reference_allele, counts) = vec.parse_vec_string(min_base_quality);
+        chromosomes_ref.extend([chromosome]);
+        positions_ref.extend([position]);
+        reference_alleles_ref.extend([reference_allele]);
+        // data_ref.extend(counts);
+        // println!("{:?}", data_ref);
         if locus_counter < window_size as u64 {
-            data.extend_from_slice(&counts);
-            locus_counter += 1;
-        } else if locus_counter == window_size as u64 {
-            let t = data.len();
+            for i in 0..n {
+                count_matrix_ref.slice_mut(s![locus_counter as usize, i]).fill(counts[i] as f64);
+                let x = count_matrix_ref[[locus_counter as usize, i]];
+                println!("{}", x);
+            }
+        }
+        if locus_counter == window_size as u64 {
+            let t = data_ref.len();
             let n = window_size;
             let p = t / n;
-            let count_matrix = Array2::from_shape_vec((p, n), data).unwrap();
-            locus_counter += 1;
-        } else {
-            // slide
-            println!("{}-{}-{}-A{}-T{}-C{}-G{}-I{}-D{}-N{}", chromosome, position, reference_allele, count_matrix[0][1], count_matrix[1][1], count_matrix[2][1], count_matrix[3][1], count_matrix[4][1], count_matrix[5][1], count_matrix[6][1]);
+            // println!("n={}; p={}", n, p);
+            // count_matrix_ref = Array2::from_shape_vec((p, n), data_ref.clone()).unwrap();
+            // println!("{:?}", chromosomes_ref);
+            // x
+
         }
+
+        if locus_counter > window_size as u64 {
+            // encapsulate, impute and slide
+            // encapsulate
+            // let mut window = Window {
+            //     chromosomes: chromosome,
+            //     positions: Vec<u64>,
+            //     reference_alleles: Vec<char>,
+            //     count_matrix: Array2<f64> // dimensions: p loci x n pools
+            // };
+
+            // impute
+            // slide
+            println!("HERE");
+            println!("{:?}", count_matrix_ref);
+            println!("{:?}", chromosomes_ref);
+            println!("{:?}", positions_ref);
+            println!("{:?}", reference_alleles_ref);
+        };
     }
 
 }
