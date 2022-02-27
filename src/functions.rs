@@ -150,40 +150,139 @@ impl PileupLocus for Vec<String> {
 }
 
 struct Window<'a> {
-    chromosomes: &'a Vec<String>,
-    positions: &'a Vec<u64>,
-    reference_alleles: &'a Vec<char>,
-    count_matrix: &'a Array2<f64> // dimensions: p loci x n pools
+    chromosomes: &'a mut Vec<String>,
+    positions: &'a mut Vec<u64>,
+    reference_alleles: &'a mut Vec<char>,
+    count_matrix: &'a mut Array2<f64> // dimensions: n (loci x 7 alleles) x p pools
 }
 
 impl Window<'_> {
-    fn dim(&self) -> (usize, usize){
-        self.count_matrix.dim()
+    fn dim(&self) -> (usize, usize, usize){
+        let (n, p) = self.count_matrix.dim();
+        let n_loci: usize = n / NUMBER_OF_ALLELES;
+        (n, p, n_loci)
     }
 
-    fn slide(&mut self, chromosome: String, position: u64, reference_allele: char, counts: Vec<u64>) -> i32 {
-        let (p, n) = self.dim();
-        let n_loci: usize = n / NUMBER_OF_ALLELES;
-        // for i in 1..n_loci {
-        //     let chr: &str = &self.chromosomes[i].to_owned()[..];
-        //     let x = replace(&mut *self.chromosomes[i-1], *chr);
-        // }
-        let mut chromosomes: Vec<String> = vec![];
-        let mut positions: Vec<u64> = vec![position];
-        let mut reference_alleles: Vec<char> = vec![reference_allele];
-        // chromosomes.extend(self.chromosomes[1..n_loci-1].to_vec());
-        // chromosomes.extend(vec![chromosome]);
-        println!("n={}; p={}", n, p);
-        // positions.extend(self.positions[1..p-1].to_vec());
-        // reference_alleles.extend(self.reference_alleles[1..p-1].to_vec());
-        // let out: Window = Window {
-        //     chromosomes: &chromosomes,
-        //     positions: &positions,
-        //     reference_alleles: &reference_alleles,
-        //     count_matrix: self.count_matrix[1..p-1].append(counts),
-        // }
-        0
+    fn slide(&mut self, chromosome: String, position: u64, reference_allele: char, counts: Vec<u64>, debug: bool) -> &mut Self {
+        let (n, p, n_loci) = self.dim();
+        
+        for i in 1..n_loci {
+            self.chromosomes[i-1] = self.chromosomes[i].clone(); // we need to clone the chromosome name
+            self.positions[i-1] = self.positions[i];
+            self.reference_alleles[i-1] = self.reference_alleles[i];
+        }
+        self.chromosomes[n_loci-1] = chromosome;
+        self.positions[n_loci-1] = position;
+        self.reference_alleles[n_loci-1] = reference_allele;
+
+        // let mut count_matrix: Array2<f64> = Array2::<f64>::zeros((n, p));
+        // let count_matrix_ref = &mut count_matrix;
+        let X = self.count_matrix.clone();
+        for locus_counter in 1..n_loci {
+            for i in 0..NUMBER_OF_ALLELES {
+                for j in 0..p {
+                    self.count_matrix
+                    .slice_mut(s![(NUMBER_OF_ALLELES*(locus_counter-1))+i, j])
+                    .fill(X[[(NUMBER_OF_ALLELES*(locus_counter-0))+i, j]] as f64);
+                }
+            }
+        }
+
+        for i in 0..NUMBER_OF_ALLELES {
+            for j in 0..p {
+                self.count_matrix
+                .slice_mut(s![(NUMBER_OF_ALLELES*(n_loci-1))+i, j])
+                .fill(counts[(j*NUMBER_OF_ALLELES)+i] as f64);
+            }
+        }
+
+        if debug {
+            println!("############################");
+            println!("n={}; p={}", n, p);
+            println!("chr={:?}", self.chromosomes);
+            println!("pos={:?}", self.positions);
+            println!("ref={:?}", self.reference_alleles);
+            println!("ORIG={:?}", X.slice(s![n-15..n,0..5]));
+            println!("NEW={:?}", self.count_matrix.slice(s![n-15..n,0..5]));
+        }
+
+        self
     }
+
+    fn find_coordinates(&self) -> (Vec<usize>, Vec<usize>, Vec<usize>, Vec<usize>) {
+        let (n, p, n_loci) = self.dim();
+
+        let mut missing_loci = vec![];
+        let mut missing_pools = vec![];
+        let mut present_loci = vec![];
+        let mut present_pools = vec![];
+        // find indices of missing loci and pools
+        for j in 0..p {
+            // iterating across loci because we have an inner loop to represent the 7 alleles per locus structure of the count matrix
+            for i in 0..n_loci {
+                let mut sum: f64 = 0.0;
+                for k in 0..NUMBER_OF_ALLELES {
+                    sum += self.count_matrix[[(i*NUMBER_OF_ALLELES)+k,j]];
+                }
+                if sum == 0.0 {
+                    missing_loci.push(i);
+                    missing_pools.push(j);
+                }
+            }
+        }
+        // find indices of missing loci
+        for i in 0..n_loci {
+            let mut bool_not_missing: bool = false;
+            for j in missing_loci.iter() {
+                if i == *j {
+                    bool_not_missing = false;
+                    break;
+                } else {
+                    bool_not_missing = true;
+                }
+            }
+            if bool_not_missing {
+                present_loci.push(i);
+            }
+        }
+        // find indices of missing pools
+        for i in 0..p {
+            let mut bool_not_missing: bool = false;
+            for j in missing_pools.iter() {
+                if i == *j {
+                    bool_not_missing = false;
+                    break;
+                } else {
+                    bool_not_missing = true;
+                }
+            }
+            if bool_not_missing {
+                present_pools.push(i);
+            }
+        }
+
+        (missing_loci, missing_pools, present_loci, present_pools)
+    }
+
+    // fn find_response_and_explanatory_matrices(&self) -> i32 {
+    //     let (n, p, n_loci) = self.dim();
+    //     let (missing_loci, missing_pools, present_loci, present_pools) = self.find_coordinates();
+    //     let sorted_unique_pool_iterator = missing_pools.clone();
+    //     sorted_unique_pool_iterator.sort();
+    //     sorted_unique_pool_iterator.dedup();
+    //     for i in sorted_unique_pool_iterator.iter() {
+    //         let y: Array2<f64>;
+    //         for j in missing_pools.iter() {
+    //             if i == j {
+    //                 y = self.count_matrix.slice(s![.., i]);
+    //             }
+    //         }
+    //     }
+
+
+    //     0
+    // }
+
 }
 
 pub fn iterate_across_lines(stream:Result<Lines<BufReader<File>>>, n: usize){
@@ -194,16 +293,18 @@ pub fn iterate_across_lines(stream:Result<Lines<BufReader<File>>>, n: usize){
     let mut chromosomes: Vec<String> = Vec::new(); let chromosomes_ref = &mut chromosomes;
     let mut positions: Vec<u64> = Vec::new(); let positions_ref = &mut positions;
     let mut reference_alleles: Vec<char> = Vec::new(); let reference_alleles_ref = &mut reference_alleles;
-    let mut data: Vec<u64> = Vec::new(); let data_ref = &mut data; // create a reference to the vector so we can mutate it within our for-loop
     let mut count_matrix = Array2::<f64>::zeros((window_size*NUMBER_OF_ALLELES as usize, (n-3)/3 as usize)); let count_matrix_ref = &mut count_matrix;
     for line in stream.unwrap() {
-        println!("{}: {} > {}", n, locus_counter, window_size);
         vec = line
                 .unwrap()
                 .split_whitespace()
                 .map(str::to_string)
                 .collect();
         let (chromosome, position, reference_allele, counts) = vec.parse_vec_string(min_base_quality);
+        
+        // if locus_counter == 1 {
+        //     println!("{:?}", counts);
+        // }
 
         // data_ref.extend(counts);
         // println!("{:?}", data_ref);
@@ -229,14 +330,19 @@ pub fn iterate_across_lines(stream:Result<Lines<BufReader<File>>>, n: usize){
             };
 
             // impute
+            let (missing_loci, missing_pools, present_loci, present_pools) = window.find_coordinates();
+            println!("missing_loci: {:?}", missing_loci);
+            println!("missing_pools: {:?}", missing_pools);
+            println!("present_loci: {:?}", present_loci);
+            println!("present_pools: {:?}", present_pools);
+
+            // let (response_idx, explanatory_idx) = window.find_response_and_explanatory_matrices();
+            // println!("Response columns: {:?}", response_idx);
+            // println!("Explanatory columns: {:?}", explanatory_idx);
+
             // slide
-            window.slide(chromosome, position, reference_allele, counts);
-            // debug
-            println!("{:?}", window.dim());
-            println!("{:?}", window.chromosomes);
-            println!("{:?}", window.positions);
-            println!("{:?}", window.reference_alleles);
-            println!("{:?}", window.count_matrix);
+            window.slide(chromosome, position, reference_allele, counts, false);
+ 
         }
         // update counter
         locus_counter += 1;
